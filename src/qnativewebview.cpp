@@ -4,15 +4,15 @@
 #include <QWindow>
 
 #ifdef Q_OS_WIN
-#  include "qwebview2webview.h"
+#  include "private/qwebview2webview.h"
 #endif
 
 #ifdef Q_OS_LINUX
-#  include "qlinuxwebview.h"
+#  include "private/qlinuxwebview.h"
 #endif
 
 #ifdef Q_OS_MACOS
-#  include "qdarwinwebview.h"
+#  include "private/qdarwinwebview.h"
 #endif
 
 QNativeWebView::QNativeWebView(QWidget *parent, Qt::WindowFlags f)
@@ -48,13 +48,14 @@ QNativeWebView::QNativeWebView(QWidget *parent, Qt::WindowFlags f)
     connect(d_ptr, &QNativeWebViewPrivate::linkClicked, this, &QNativeWebView::linkClicked);
     connect(d_ptr, &QNativeWebViewPrivate::iconChanged, this, &QNativeWebView::iconChanged);
     connect(d_ptr, &QNativeWebViewPrivate::urlChanged, this, &QNativeWebView::urlChanged);
+    connect(d_ptr, &QNativeWebViewPrivate::errorOccurred, this, &QNativeWebView::errorOccurred);
 }
 
 QNativeWebView::~QNativeWebView() { }
 
-QNativeWebSettings *QNativeWebView::settings()
+QString QNativeWebView::errorString() const
 {
-    return d_ptr->settings();
+    return d_ptr->errorString();
 }
 
 void QNativeWebView::load(const QUrl &url)

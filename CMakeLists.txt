@@ -8,23 +8,20 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets LinguistTools)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets LinguistTools)
+find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets)
 
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/include")
 
-set(TS_FILES src/QNativeWebView_zh_CN.ts)
-
 set(PROJECT_SOURCES
-    include/QNativeWebView_global.h include/qnativewebsettings.h
-    include/qnativewebview_p.h include/qnativewebview.h src/qnativewebview.cpp
-    ${TS_FILES})
+    include/QNativeWebView_global.h include/private/qnativewebview_p.h
+    include/qnativewebview.h src/qnativewebview.cpp)
 
 if(WIN32)
   include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindWebView2.cmake")
   include_directories("${WEBVIEW2_INCLUDE_DIR}")
   set(WebViewLibs ${WEBVIEW2_LIBRARY})
-  list(APPEND PROJECT_SOURCES include/qwebview2webview.h
+  list(APPEND PROJECT_SOURCES include/private/qwebview2webview.h
        src/qwebview2webview.cpp)
 endif()
 
@@ -34,13 +31,15 @@ if(LINUX)
   pkg_search_module(WEBKIT2GTK REQUIRED webkit2gtk-4.1 webkit2gtk-4.0)
   include_directories(${GTK3_INCLUDE_DIRS} ${WEBKIT2GTK_INCLUDE_DIRS})
   set(WebViewLibs ${WEBKIT2GTK_LIBRARIES})
-  list(APPEND PROJECT_SOURCES include/qlinuxwebview.h src/qlinuxwebview.cpp)
+  list(APPEND PROJECT_SOURCES include/private/qlinuxwebview.h
+       src/qlinuxwebview.cpp)
 endif()
 
 if(APPLE)
   set(WebViewLibs "-framework WebKit" "-framework AppKit"
                   "-framework Foundation")
-  list(APPEND PROJECT_SOURCES include/qdarwinwebview.h src/qdarwinwebview.mm)
+  list(APPEND PROJECT_SOURCES include/private/qdarwinwebview.h
+       src/qdarwinwebview.mm)
 endif()
 
 add_library(${PROJECT_NAME} SHARED ${PROJECT_SOURCES})
@@ -50,12 +49,6 @@ target_link_libraries(
                           Qt${QT_VERSION_MAJOR}::Widgets ${WebViewLibs})
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE QNATIVEWEBVIEW_LIBRARY)
-
-if(COMMAND qt_create_translation)
-  qt_create_translation(QM_FILES ${CMAKE_CURRENT_SOURCE_DIR} ${TS_FILES})
-else()
-  qt5_create_translation(QM_FILES ${CMAKE_CURRENT_SOURCE_DIR} ${TS_FILES})
-endif()
 
 if(NOT DEFINED NO_BUILD_EXAMPLES)
   add_subdirectory(examples)

@@ -3,7 +3,8 @@
 #include <webkit2/webkit2.h>
 // clang-format on
 
-#include "qlinuxwebview.h"
+#include "private/qlinuxwebview.h"
+
 #include <QDebug>
 #include <QWindow>
 #include <QTimer>

@@ -1,6 +1,5 @@
 #include "mainwindow.h"
 #include "./ui_mainwindow.h"
-#include "QNativeWebSettings"
 
 #include <QDebug>
 #include <QAction>
@@ -18,12 +17,22 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     ui->actionRefresh->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
 
     connect(ui->widgetBrowser, &QNativeWebView::titleChanged, this, &MainWindow::setWindowTitle);
-    connect(ui->widgetBrowser, &QNativeWebView::loadStarted, this,
-            [&] { qInfo() << "loadStarted"; });
-    connect(ui->widgetBrowser, &QNativeWebView::loadFinished, this,
-            [&](bool ok) { qInfo() << "loadFinished" << ok; });
-    connect(ui->widgetBrowser, &QNativeWebView::loadProgress, this,
-            [&](int progress) { qInfo() << "loadProgress" << progress; });
+    connect(ui->widgetBrowser, &QNativeWebView::loadStarted, this, [&] {
+        qInfo() << "loadStarted";
+        ui->logEdit->appendPlainText("loadStarted");
+    });
+    connect(ui->widgetBrowser, &QNativeWebView::loadFinished, this, [&](bool ok) {
+        qInfo() << "loadFinished" << ok;
+        ui->logEdit->appendPlainText(QString("loadFinished: %1").arg(ok));
+    });
+    connect(ui->widgetBrowser, &QNativeWebView::loadProgress, this, [&](int progress) {
+        qInfo() << "loadProgress" << progress;
+        ui->logEdit->appendPlainText(QString("loadProgress: %1").arg(progress));
+    });
+    connect(ui->widgetBrowser, &QNativeWebView::errorOccurred, this, [&](const QString &error) {
+        qInfo() << "errorOccurred" << error;
+        ui->logEdit->appendPlainText(QString("errorOccurred: %1").arg(error));
+    });
 
     // init url
     ui->urlEdit->setText("https://pyqt.site");

@@ -1,4 +1,5 @@
-#include "qdarwinwebview.h"
+#include "private/qdarwinwebview.h"
+
 #include <QDebug>
 #include <QWindow>
 #include <QTimer>
@@ -218,81 +219,10 @@ typedef NSView UIView;
 
 @end
 
-QDarwinWebViewSettingsPrivate::QDarwinWebViewSettingsPrivate(WKWebViewConfiguration *conf,
-                                                             QObject *parent)
-    : QNativeWebSettings(parent),
-      m_conf(conf),
-      m_allowFileAccess(false),
-      m_localContentCanAccessFileUrls(false)
-{
-}
-
-bool QDarwinWebViewSettingsPrivate::localStorageEnabled() const
-{
-    return m_conf.websiteDataStore.persistent;
-}
-
-bool QDarwinWebViewSettingsPrivate::javaScriptEnabled() const
-{
-    // Deprecated
-    bool isJsEnabled = false;
-#if QT_MACOS_IOS_PLATFORM_SDK_EQUAL_OR_ABOVE(110000, 140000)
-    if (__builtin_available(macOS 11.0, iOS 14.0, *))
-        isJsEnabled = m_conf.defaultWebpagePreferences.allowsContentJavaScript;
-#else
-    isJsEnabled = m_conf.preferences.javaScriptEnabled;
-#endif
-    return isJsEnabled;
-}
-
-bool QDarwinWebViewSettingsPrivate::localContentCanAccessFileUrls() const
-{
-    return m_localContentCanAccessFileUrls;
-}
-
-bool QDarwinWebViewSettingsPrivate::allowFileAccess() const
-{
-    return m_allowFileAccess;
-}
-
-void QDarwinWebViewSettingsPrivate::setLocalContentCanAccessFileUrls(bool enabled)
-{
-    // This will be checked in QDarwinWebViewPrivate::load()
-    m_localContentCanAccessFileUrls = enabled;
-}
-
-void QDarwinWebViewSettingsPrivate::setJavaScriptEnabled(bool enabled)
-{
-#if QT_MACOS_IOS_PLATFORM_SDK_EQUAL_OR_ABOVE(110000, 140000)
-    if (__builtin_available(macOS 11.0, iOS 14.0, *))
-        m_conf.defaultWebpagePreferences.allowsContentJavaScript = enabled;
-#else
-    m_conf.preferences.javaScriptEnabled = enabled;
-#endif
-}
-
-void QDarwinWebViewSettingsPrivate::setLocalStorageEnabled(bool enabled)
-{
-    if (enabled == localStorageEnabled())
-        return;
-
-    if (enabled)
-        m_conf.websiteDataStore = [WKWebsiteDataStore defaultDataStore];
-    else
-        m_conf.websiteDataStore = [WKWebsiteDataStore nonPersistentDataStore];
-}
-
-void QDarwinWebViewSettingsPrivate::setAllowFileAccess(bool enabled)
-{
-    // This will be checked in QDarwinWebViewPrivate::load()
-    m_allowFileAccess = enabled;
-}
-
 QDarwinWebViewPrivate::QDarwinWebViewPrivate(QObject *parent)
     : QNativeWebViewPrivate(parent),
       m_webview(nil),
       m_navigation(nil),
-      m_settings(nullptr),
       m_window(nullptr)
 {
     initialize();
@@ -327,14 +257,9 @@ void QDarwinWebViewPrivate::load(const QUrl &url)
             }
             // We need to pass local files via loadFileURL and the read access should cover
             // the directory that the file is in, to facilitate loading referenced images etc
-            if (m_settings->allowFileAccess()) {
-                if (m_settings->localContentCanAccessFileUrls())
-                    [m_webview loadFileURL:url.toNSURL()
-                            allowingReadAccessToURL:QUrl(url.toString(QUrl::RemoveFilename))
-                                                            .toNSURL()];
-                else
-                    [m_webview loadRequest:[NSURLRequest requestWithURL:url.toNSURL()]];
-            }
+            [m_webview loadFileURL:url.toNSURL()
+                    allowingReadAccessToURL:QUrl(url.toString(QUrl::RemoveFilename))
+                                                    .toNSURL()];
         } else {
             [m_webview loadRequest:[NSURLRequest requestWithURL:url.toNSURL()]];
         }
@@ -395,11 +320,6 @@ int QDarwinWebViewPrivate::progressValue() const
     return 0;
 }
 
-QNativeWebSettings *QDarwinWebViewPrivate::settings()
-{
-    return m_settings;
-}
-
 QWindow *QDarwinWebViewPrivate::nativeWindow()
 {
     return m_window;
@@ -428,5 +348,4 @@ void QDarwinWebViewPrivate::initialize()
     }
 
     m_window = QWindow::fromWinId(reinterpret_cast<WId>(m_webview));
-    m_settings = new QDarwinWebViewSettingsPrivate(m_webview.configuration, this);
 }

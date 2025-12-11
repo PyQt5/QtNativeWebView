@@ -6,7 +6,6 @@
 #include <QWidget>
 #include <QUrl>
 
-class QNativeWebSettings;
 class QNativeWebViewPrivate;
 
 class QNATIVEWEBVIEW_EXPORT QNativeWebView : public QWidget
@@ -16,7 +15,7 @@ class QNATIVEWEBVIEW_EXPORT QNativeWebView : public QWidget
 public:
     explicit QNativeWebView(QWidget *parent = nullptr, Qt::WindowFlags f = Qt::WindowFlags());
     ~QNativeWebView();
-    QNativeWebSettings *settings();
+    QString errorString() const;
 
 public Q_SLOTS:
     void load(const QUrl &url);
@@ -35,6 +34,7 @@ Q_SIGNALS:
     void linkClicked(const QUrl &url);
     void iconChanged(const QIcon &icon);
     void urlChanged(const QUrl &url);
+    void errorOccurred(const QString &error);
 
 private:
     QNativeWebViewPrivate *d_ptr;

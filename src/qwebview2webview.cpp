@@ -1,4 +1,4 @@
-#include "qwebview2webview.h"
+#include "private/qwebview2webview.h"
 
 #include <QDebug>
 #include <QWindow>
@@ -14,69 +14,37 @@
       Q_ASSERT_X(SUCCEEDED(hr), Q_FUNC_INFO, qPrintable(qt_error_string(hr)));
 #endif
 
-QWebView2WebViewSettingsPrivate::QWebView2WebViewSettingsPrivate(
-        ICoreWebView2Controller *controller, QObject *parent)
-    : QNativeWebSettings(parent),
-      m_webviewController(controller),
-      m_webview(nullptr),
-      m_allowFileAccess(false),
-      m_localContentCanAccessFileUrls(false),
-      m_javaScriptEnabled(false)
+QString WebErrorStatusToString(COREWEBVIEW2_WEB_ERROR_STATUS status)
 {
-    if (controller != nullptr) {
-        HRESULT hr = controller->get_CoreWebView2(&m_webview);
-        Q_ASSERT_SUCCEEDED(hr);
+    switch (status) {
+#define STATUS_ENTRY(statusValue) \
+    case statusValue:             \
+        return QString(#statusValue);
+        STATUS_ENTRY(COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN);
+        STATUS_ENTRY(COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_COMMON_NAME_IS_INCORRECT);
+        STATUS_ENTRY(COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_EXPIRED);
+        STATUS_ENTRY(COREWEBVIEW2_WEB_ERROR_STATUS_CLIENT_CERTIFICATE_CONTAINS_ERRORS);
+        STATUS_ENTRY(COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_REVOKED);
+        STATUS_ENTRY(COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_IS_INVALID);
+        STATUS_ENTRY(COREWEBVIEW2_WEB_ERROR_STATUS_SERVER_UNREACHABLE);
+        STATUS_ENTRY(COREWEBVIEW2_WEB_ERROR_STATUS_TIMEOUT);
+        STATUS_ENTRY(COREWEBVIEW2_WEB_ERROR_STATUS_ERROR_HTTP_INVALID_SERVER_RESPONSE);
+        STATUS_ENTRY(COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_ABORTED);
+        STATUS_ENTRY(COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_RESET);
+        STATUS_ENTRY(COREWEBVIEW2_WEB_ERROR_STATUS_DISCONNECTED);
+        STATUS_ENTRY(COREWEBVIEW2_WEB_ERROR_STATUS_CANNOT_CONNECT);
+        STATUS_ENTRY(COREWEBVIEW2_WEB_ERROR_STATUS_HOST_NAME_NOT_RESOLVED);
+        STATUS_ENTRY(COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED);
+        STATUS_ENTRY(COREWEBVIEW2_WEB_ERROR_STATUS_REDIRECT_FAILED);
+        STATUS_ENTRY(COREWEBVIEW2_WEB_ERROR_STATUS_UNEXPECTED_ERROR);
+
+#undef STATUS_ENTRY
+    case COREWEBVIEW2_WEB_ERROR_STATUS_VALID_AUTHENTICATION_CREDENTIALS_REQUIRED:
+    case COREWEBVIEW2_WEB_ERROR_STATUS_VALID_PROXY_AUTHENTICATION_REQUIRED:
+        break;
     }
-}
 
-bool QWebView2WebViewSettingsPrivate::localStorageEnabled() const
-{
-    return true;
-}
-
-bool QWebView2WebViewSettingsPrivate::javaScriptEnabled() const
-{
-    return m_javaScriptEnabled;
-}
-
-bool QWebView2WebViewSettingsPrivate::localContentCanAccessFileUrls() const
-{
-    return m_allowFileAccess;
-}
-
-bool QWebView2WebViewSettingsPrivate::allowFileAccess() const
-{
-    return m_allowFileAccess;
-}
-
-void QWebView2WebViewSettingsPrivate::setLocalContentCanAccessFileUrls(bool enabled)
-{
-    Q_UNUSED(enabled);
-    qWarning("setLocalContentCanAccessFileUrls() not supported on this platform");
-}
-
-void QWebView2WebViewSettingsPrivate::setJavaScriptEnabled(bool enabled)
-{
-    m_javaScriptEnabled = enabled;
-    if (!m_webview)
-        return;
-
-    ComPtr<ICoreWebView2Settings> settings;
-    HRESULT hr = m_webview->get_Settings(&settings);
-    Q_ASSERT_SUCCEEDED(hr);
-    hr = settings->put_IsScriptEnabled(enabled);
-    Q_ASSERT_SUCCEEDED(hr);
-}
-
-void QWebView2WebViewSettingsPrivate::setLocalStorageEnabled(bool enabled)
-{
-    Q_UNUSED(enabled);
-    qWarning("setLocalStorageEnabled() not supported on this platform");
-}
-
-void QWebView2WebViewSettingsPrivate::setAllowFileAccess(bool enabled)
-{
-    m_allowFileAccess = enabled;
+    return QString("ERROR");
 }
 
 QWebView2WebViewPrivate::QWebView2WebViewPrivate(QObject *parent)
@@ -84,7 +52,6 @@ QWebView2WebViewPrivate::QWebView2WebViewPrivate(QObject *parent)
       m_webviewController(nullptr),
       m_webview(nullptr),
       m_cookieManager(nullptr),
-      m_settings(nullptr),
       m_window(new QWindow)
 {
     // Create a QWindow without a parent
@@ -112,15 +79,23 @@ void QWebView2WebViewPrivate::load(const QUrl &url)
     m_url = url;
     if (m_webview) {
         HRESULT hr = m_webview->Navigate((wchar_t *)url.toString().utf16());
+        Q_ASSERT_SUCCEEDED(hr);
         if (FAILED(hr)) {
-            //            emit loadProgressChanged(100);
-            //            emit loadingChanged(
-            //                    QWebViewLoadRequestPrivate(url, QWebView::LoadFailedStatus, QString()));
+            emit loadFinished(false);
         }
     }
 }
 
-void QWebView2WebViewPrivate::setHtml(const QString &html, const QUrl &baseUrl) { }
+void QWebView2WebViewPrivate::setHtml(const QString &html, const QUrl &baseUrl)
+{
+    if (m_webview && !html.isEmpty()) {
+        const HRESULT hr = m_webview->NavigateToString((wchar_t *)html.utf16());
+        Q_ASSERT_SUCCEEDED(hr);
+        if (FAILED(hr)) {
+            emit loadFinished(false);
+        }
+    }
+}
 
 void QWebView2WebViewPrivate::stop()
 {
@@ -154,25 +129,27 @@ void QWebView2WebViewPrivate::reload()
     }
 }
 
-QNativeWebSettings *QWebView2WebViewPrivate::settings()
-{
-    return m_settings;
-}
-
 QWindow *QWebView2WebViewPrivate::nativeWindow()
 {
     return m_window;
+}
+
+QString QWebView2WebViewPrivate::errorString() const
+{
+    return m_error;
 }
 
 HRESULT
 QWebView2WebViewPrivate::onNavigationStarting(ICoreWebView2 *webview,
                                               ICoreWebView2NavigationStartingEventArgs *args)
 {
+    emit loadStarted();
+    emit loadProgress(25);
     wchar_t *uri;
     HRESULT hr = args->get_Uri(&uri);
     Q_ASSERT_SUCCEEDED(hr);
     m_url = QString::fromStdWString(uri);
-    //    emit urlChanged(m_url);
+    emit urlChanged(m_url);
     CoTaskMemFree(uri);
     return S_OK;
 }
@@ -181,31 +158,29 @@ HRESULT
 QWebView2WebViewPrivate::onNavigationCompleted(ICoreWebView2 *webview,
                                                ICoreWebView2NavigationCompletedEventArgs *args)
 {
-    //    m_isLoading = false;
+    emit loadProgress(100);
 
-    //    BOOL isSuccess;
-    //    HRESULT hr = args->get_IsSuccess(&isSuccess);
-    //    Q_ASSERT_SUCCEEDED(hr);
-    //    const QWebView::LoadStatus status =
-    //            isSuccess ? QWebView::LoadSucceededStatus : QWebView::LoadFailedStatus;
+    BOOL isSuccess;
+    HRESULT hr = args->get_IsSuccess(&isSuccess);
+    Q_ASSERT_SUCCEEDED(hr);
 
-    //    COREWEBVIEW2_WEB_ERROR_STATUS errorStatus;
-    //    hr = args->get_WebErrorStatus(&errorStatus);
-    //    Q_ASSERT_SUCCEEDED(hr);
-    //    if (errorStatus != COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED) {
-    //        const QString errorStr = isSuccess ? "" : WebErrorStatusToString(errorStatus);
-    //        emit titleChanged(title());
-    //        emit loadProgressChanged(100);
-    //        emit loadingChanged(QWebViewLoadRequestPrivate(m_url, status, errorStr));
-    //    } else {
-    //        emit loadingChanged(
-    //                QWebViewLoadRequestPrivate(m_url, QWebView::LoadStoppedStatus, QString()));
-    //    }
+    emit loadFinished(isSuccess);
+
+    COREWEBVIEW2_WEB_ERROR_STATUS errorStatus;
+    hr = args->get_WebErrorStatus(&errorStatus);
+    Q_ASSERT_SUCCEEDED(hr);
+    if (errorStatus != COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED) {
+        m_error = isSuccess ? "" : WebErrorStatusToString(errorStatus);
+        if (!m_error.isEmpty()) {
+            emit errorOccurred(m_error);
+        }
+    }
+
     return S_OK;
 }
 
 HRESULT
-QWebView2WebViewPrivate::onWebResourceRequested(ICoreWebView2 *sender,
+QWebView2WebViewPrivate::onWebResourceRequested(ICoreWebView2 *webview,
                                                 ICoreWebView2WebResourceRequestedEventArgs *args)
 {
     ComPtr<ICoreWebView2WebResourceRequest> request;
@@ -235,9 +210,24 @@ QWebView2WebViewPrivate::onWebResourceRequested(ICoreWebView2 *sender,
 HRESULT QWebView2WebViewPrivate::onContentLoading(ICoreWebView2 *webview,
                                                   ICoreWebView2ContentLoadingEventArgs *args)
 {
-    //    m_isLoading = true;
-    //    emit loadingChanged(QWebViewLoadRequestPrivate(m_url, QWebView::LoadStartedStatus, QString()));
-    //    emit loadProgressChanged(0);
+    emit loadProgress(50);
+    return S_OK;
+}
+
+HRESULT QWebView2WebViewPrivate::onDOMContentLoaded(ICoreWebView2 *webview,
+                                                    ICoreWebView2DOMContentLoadedEventArgs *args)
+{
+    emit loadProgress(75);
+    return S_OK;
+}
+
+HRESULT QWebView2WebViewPrivate::onDocumentTitleChanged(ICoreWebView2 *webview, IUnknown *args)
+{
+    wchar_t *title;
+    HRESULT hr = webview->get_DocumentTitle(&title);
+    Q_ASSERT_SUCCEEDED(hr);
+    emit titleChanged(QString::fromStdWString(title));
+    CoTaskMemFree(title);
     return S_OK;
 }
 
@@ -299,8 +289,6 @@ void QWebView2WebViewPrivate::initialize()
         hr = webview2->get_CookieManager(&m_cookieManager);
         Q_ASSERT_SUCCEEDED(hr);
 
-        m_settings = new QWebView2WebViewSettingsPrivate(m_webviewController.Get(), this);
-
         // Add a few settings for the webview
         ComPtr<ICoreWebView2Settings> settings;
         hr = m_webview->get_Settings(&settings);
@@ -343,6 +331,8 @@ void QWebView2WebViewPrivate::initialize()
         }
 
         EventRegistrationToken token;
+
+        // add_NavigationStarting
         hr = m_webview->add_NavigationStarting(
                 Microsoft::WRL::Callback<ICoreWebView2NavigationStartingEventHandler>(
                         [this](ICoreWebView2 *webview,
@@ -353,6 +343,7 @@ void QWebView2WebViewPrivate::initialize()
                 &token);
         Q_ASSERT_SUCCEEDED(hr);
 
+        // add_NavigationCompleted
         hr = m_webview->add_NavigationCompleted(
                 Microsoft::WRL::Callback<ICoreWebView2NavigationCompletedEventHandler>(
                         [this](ICoreWebView2 *webview,
@@ -363,6 +354,7 @@ void QWebView2WebViewPrivate::initialize()
                 &token);
         Q_ASSERT_SUCCEEDED(hr);
 
+        // add_WebResourceRequested
         m_webview->add_WebResourceRequested(
                 Microsoft::WRL::Callback<ICoreWebView2WebResourceRequestedEventHandler>(
                         [this](ICoreWebView2 *webview,
@@ -372,6 +364,7 @@ void QWebView2WebViewPrivate::initialize()
                         .Get(),
                 &token);
 
+        // add_ContentLoading
         hr = m_webview->add_ContentLoading(
                 Microsoft::WRL::Callback<ICoreWebView2ContentLoadingEventHandler>(
                         [this](ICoreWebView2 *webview, ICoreWebView2ContentLoadingEventArgs *args)
@@ -380,6 +373,17 @@ void QWebView2WebViewPrivate::initialize()
                 &token);
         Q_ASSERT_SUCCEEDED(hr);
 
+        // add_DocumentTitleChanged
+        hr = m_webview->add_DocumentTitleChanged(
+                Microsoft::WRL::Callback<ICoreWebView2DocumentTitleChangedEventHandler>(
+                        [this](ICoreWebView2 *webview, IUnknown *args) -> HRESULT {
+                            return this->onDocumentTitleChanged(webview, args);
+                        })
+                        .Get(),
+                &token);
+        Q_ASSERT_SUCCEEDED(hr);
+
+        // add_NewWindowRequested
         hr = m_webview->add_NewWindowRequested(
                 Microsoft::WRL::Callback<ICoreWebView2NewWindowRequestedEventHandler>(
                         [this](ICoreWebView2 *webview,
@@ -393,6 +397,17 @@ void QWebView2WebViewPrivate::initialize()
         ComPtr<ICoreWebView2_22> webview22;
         hr = m_webview->QueryInterface(IID_PPV_ARGS(&webview22));
         Q_ASSERT_SUCCEEDED(hr);
+
+        // add_DOMContentLoaded
+        hr = webview22->add_DOMContentLoaded(
+                Microsoft::WRL::Callback<ICoreWebView2DOMContentLoadedEventHandler>(
+                        [this](ICoreWebView2 *webview, ICoreWebView2DOMContentLoadedEventArgs *args)
+                                -> HRESULT { return this->onDOMContentLoaded(webview, args); })
+                        .Get(),
+                &token);
+        Q_ASSERT_SUCCEEDED(hr);
+
+        // AddWebResourceRequestedFilterWithRequestSourceKinds
         hr = webview22->AddWebResourceRequestedFilterWithRequestSourceKinds(
                 L"file://*", COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
                 COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_ALL);
@@ -402,8 +417,8 @@ void QWebView2WebViewPrivate::initialize()
     });
     using W2EnvironmentCallback = ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler;
     auto environmentCallback = Microsoft::WRL::Callback<W2EnvironmentCallback>(
-            [hWnd, thisPtr, controllerCallback, this](HRESULT result,
-                                                      ICoreWebView2Environment *env) -> HRESULT {
+            [hWnd, thisPtr, controllerCallback](HRESULT result,
+                                                ICoreWebView2Environment *env) -> HRESULT {
                 env->CreateCoreWebView2Controller(hWnd, controllerCallback.Get());
                 return S_OK;
             });

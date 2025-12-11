@@ -9,7 +9,6 @@ class QWindow;
 QT_END_NAMESPACE
 
 class QNativeWebView;
-class QNativeWebSettings;
 
 class QNativeWebViewPrivate : public QObject
 {
@@ -23,8 +22,8 @@ public:
     virtual void forward() = 0;
     virtual void reload() = 0;
 
-    virtual QNativeWebSettings *settings() = 0;
     virtual QWindow *nativeWindow() = 0;
+    virtual QString errorString() const = 0;
 
 Q_SIGNALS:
     void loadStarted();
@@ -35,6 +34,7 @@ Q_SIGNALS:
     void linkClicked(const QUrl &url);
     void iconChanged(const QIcon &icon);
     void urlChanged(const QUrl &url);
+    void errorOccurred(const QString &error);
 
 protected:
     explicit QNativeWebViewPrivate(QObject *parent = nullptr) : QObject(parent) { }
