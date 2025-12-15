@@ -22,6 +22,7 @@ public slots:
     void on_actionBack_triggered(bool checked = false);
     void on_actionForward_triggered(bool checked = false);
     void on_actionRefresh_triggered(bool checked = false);
+    void on_buttonRunJs_clicked();
 
 private:
     Ui::MainWindow *ui;

@@ -37,6 +37,8 @@ public:
 
     void load(const QUrl &url) override;
     void setHtml(const QString &html, const QUrl &baseUrl = QUrl()) override;
+    void evaluateJavaScript(const QString &scriptSource,
+                            const std::function<void(const QVariant &)> &callback = {}) override;
     void stop() override;
     void back() override;
     void forward() override;

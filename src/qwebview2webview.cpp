@@ -6,7 +6,10 @@
 #include <QScreen>
 #include <QUrl>
 #include <QPointer>
+#include <QJsonParseError>
+#include <QJsonDocument>
 #include <QStandardPaths>
+#include <QJsonObject>
 #include <QDir>
 
 #ifndef Q_ASSERT_SUCCEEDED
@@ -95,6 +98,52 @@ void QWebView2WebViewPrivate::setHtml(const QString &html, const QUrl &baseUrl)
             emit loadFinished(false);
         }
     }
+}
+
+void QWebView2WebViewPrivate::evaluateJavaScript(
+        const QString &scriptSource, const std::function<void(const QVariant &)> &callback)
+{
+    if (!m_webview) {
+        if (callback) {
+            callback("");
+        }
+        return;
+    }
+
+    const HRESULT hr = m_webview->ExecuteScript(
+            (wchar_t *)scriptSource.utf16(),
+            Microsoft::WRL::Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
+                    [this, callback](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT {
+                        QString resultStr = QString::fromWCharArray(resultObjectAsJson);
+                        qInfo() << "resultStr:" << resultStr;
+
+                        QJsonParseError parseError;
+                        QJsonDocument jsonDoc =
+                                QJsonDocument::fromJson(resultStr.toUtf8(), &parseError);
+
+                        QVariant resultVariant;
+                        if (parseError.error == QJsonParseError::NoError) {
+                            resultVariant = jsonDoc.toVariant();
+                        } else {
+                            QString wrapped = QString("{\"value\":%1}").arg(resultStr);
+                            jsonDoc = QJsonDocument::fromJson(wrapped.toUtf8(), &parseError);
+                            if (parseError.error == QJsonParseError::NoError) {
+                                resultVariant = jsonDoc.object().value("value").toVariant();
+                            } else {
+                                QJsonValue val = QJsonValue::fromVariant(resultStr);
+                                resultVariant = val.toVariant();
+                            }
+                        }
+                        if (errorCode != S_OK) {
+                            QMetaObject::invokeMethod(
+                                    this, [&] { callback(qt_error_string(errorCode)); });
+                        } else {
+                            QMetaObject::invokeMethod(this, [&] { callback(resultVariant); });
+                        }
+                        return errorCode;
+                    })
+                    .Get());
+    Q_ASSERT_SUCCEEDED(hr);
 }
 
 void QWebView2WebViewPrivate::stop()

@@ -65,3 +65,14 @@ void MainWindow::on_actionForward_triggered(bool checked)
 }
 
 void MainWindow::on_actionRefresh_triggered(bool checked) { }
+
+void MainWindow::on_buttonRunJs_clicked()
+{
+    const QString code = ui->jsEdit->toPlainText().trimmed();
+    if (code.isEmpty()) {
+        return;
+    }
+
+    ui->widgetBrowser->evaluateJavaScript(
+            code, [&](const QVariant &result) { ui->logEdit->appendPlainText(result.toString()); });
+}

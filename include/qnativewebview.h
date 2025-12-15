@@ -5,6 +5,7 @@
 
 #include <QWidget>
 #include <QUrl>
+#include <functional>
 
 class QNativeWebViewPrivate;
 
@@ -16,6 +17,8 @@ public:
     explicit QNativeWebView(QWidget *parent = nullptr, Qt::WindowFlags f = Qt::WindowFlags());
     ~QNativeWebView();
     QString errorString() const;
+    void evaluateJavaScript(const QString &scriptSource,
+                            const std::function<void(const QVariant &)> &callback = {});
 
 public Q_SLOTS:
     void load(const QUrl &url);

@@ -27,5 +27,9 @@
         <source>Refresh</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Run JS</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 </TS>

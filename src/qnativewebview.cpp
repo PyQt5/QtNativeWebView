@@ -58,6 +58,12 @@ QString QNativeWebView::errorString() const
     return d_ptr->errorString();
 }
 
+void QNativeWebView::evaluateJavaScript(const QString &scriptSource,
+                                        const std::function<void(const QVariant &)> &callback)
+{
+    d_ptr->evaluateJavaScript(scriptSource, callback);
+}
+
 void QNativeWebView::load(const QUrl &url)
 {
     d_ptr->load(url);

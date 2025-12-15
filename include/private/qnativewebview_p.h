@@ -3,6 +3,8 @@
 
 #include <QObject>
 #include <QUrl>
+#include <QVariant>
+#include <functional>
 
 QT_BEGIN_NAMESPACE
 class QWindow;
@@ -17,6 +19,8 @@ class QNativeWebViewPrivate : public QObject
 public:
     virtual void load(const QUrl &url) = 0;
     virtual void setHtml(const QString &html, const QUrl &baseUrl = QUrl()) = 0;
+    virtual void evaluateJavaScript(const QString &scriptSource,
+                                    const std::function<void(const QVariant &)> &callback = {}) = 0;
     virtual void stop() = 0;
     virtual void back() = 0;
     virtual void forward() = 0;
