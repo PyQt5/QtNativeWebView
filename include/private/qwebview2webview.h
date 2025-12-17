@@ -2,6 +2,7 @@
 #define QWEBVIEW2WEBVIEW_H
 
 #include "qnativewebview_p.h"
+
 #include <QMap>
 #include <QUrl>
 
@@ -46,6 +47,12 @@ public:
 
     QWindow *nativeWindow() override;
     QString errorString() const override;
+    QString userAgent() const override;
+    bool setUserAgent(const QString &userAgent) override;
+    QJsonObject allCookies() const override;
+    bool setCookie(const QString &domain, const QString &name, const QString &value) override;
+    void deleteCookie(const QString &domain, const QString &name) override;
+    void deleteAllCookies() override;
 
 private Q_SLOTS:
     HRESULT onNavigationStarting(ICoreWebView2 *webview,

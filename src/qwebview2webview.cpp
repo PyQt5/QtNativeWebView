@@ -8,6 +8,7 @@
 #include <QPointer>
 #include <QJsonParseError>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QStandardPaths>
 #include <QJsonObject>
 #include <QDir>
@@ -188,6 +189,203 @@ QString QWebView2WebViewPrivate::errorString() const
     return m_error;
 }
 
+QString QWebView2WebViewPrivate::userAgent() const
+{
+    if (m_webviewController) {
+        ComPtr<ICoreWebView2Settings> settings;
+        HRESULT hr = m_webview->get_Settings(&settings);
+        Q_ASSERT_SUCCEEDED(hr);
+        ComPtr<ICoreWebView2Settings2> settings2;
+        hr = settings->QueryInterface(IID_PPV_ARGS(&settings2));
+
+        if (settings2) {
+            wchar_t *userAgent;
+            hr = settings2->get_UserAgent(&userAgent);
+            Q_ASSERT_SUCCEEDED(hr);
+            QString userAgentString = QString::fromStdWString(userAgent);
+            CoTaskMemFree(userAgent);
+            return userAgentString;
+        }
+        qWarning() << "No http user agent available.";
+        return "";
+    }
+    return "";
+}
+
+bool QWebView2WebViewPrivate::setUserAgent(const QString &userAgent)
+{
+    if (m_webviewController) {
+        ComPtr<ICoreWebView2Settings> settings;
+        HRESULT hr = m_webview->get_Settings(&settings);
+        if (!SUCCEEDED(hr)) {
+            return false;
+        }
+
+        ComPtr<ICoreWebView2Settings2> settings2;
+        hr = settings->QueryInterface(IID_PPV_ARGS(&settings2));
+        if (settings2) {
+            hr = settings2->put_UserAgent((wchar_t *)userAgent.utf16());
+            return SUCCEEDED(hr);
+        } else {
+            qWarning() << "No http user agent setting available.";
+        }
+    }
+
+    return false;
+}
+
+QJsonObject QWebView2WebViewPrivate::allCookies() const
+{
+    QJsonObject cookies;
+
+    if (m_webview && m_cookieManager) {
+        HRESULT hr = m_cookieManager->GetCookies(
+                L"",
+                Microsoft::WRL::Callback<ICoreWebView2GetCookiesCompletedHandler>(
+                        [&cookies](HRESULT result, ICoreWebView2CookieList *cookieList) -> HRESULT {
+                            UINT count = 0;
+                            cookieList->get_Count(&count);
+                            for (UINT i = 0; i < count; ++i) {
+                                ComPtr<ICoreWebView2Cookie> cookie;
+                                if (SUCCEEDED(cookieList->GetValueAtIndex(i, &cookie))) {
+                                    wchar_t *domain = nullptr;
+                                    if (SUCCEEDED(cookie->get_Domain(&domain))) {
+                                        // domain
+                                        QString sdomain = QString::fromStdWString(domain);
+                                        CoTaskMemFree(domain);
+                                        if (!cookies.contains(sdomain)) {
+                                            cookies.insert(sdomain, QJsonObject());
+                                        }
+                                        QJsonObject jdomain = cookies.value(sdomain).toObject();
+
+                                        // name
+                                        wchar_t *name = nullptr;
+                                        if (SUCCEEDED(cookie->get_Name(&name))) {
+                                            QString sname = QString::fromStdWString(name);
+                                            CoTaskMemFree(name);
+                                            jdomain.insert("name", sname);
+                                            if (!jdomain.contains(sname)) {
+                                                jdomain.insert(sname, QJsonObject());
+                                            }
+                                            QJsonObject ndomain = jdomain.value(sname).toObject();
+
+                                            // value
+                                            wchar_t *value = nullptr;
+                                            if (SUCCEEDED(cookie->get_Value(&value))) {
+                                                QString svalue = QString::fromStdWString(value);
+                                                CoTaskMemFree(value);
+                                                ndomain.insert("value", svalue);
+                                            }
+
+                                            // path
+                                            wchar_t *path = nullptr;
+                                            if (SUCCEEDED(cookie->get_Path(&path))) {
+                                                QString spath = QString::fromStdWString(path);
+                                                CoTaskMemFree(path);
+                                                ndomain.insert("path", spath);
+                                            }
+
+                                            // expires
+                                            double expires = 0;
+                                            if (SUCCEEDED(cookie->get_Expires(&expires))) {
+                                                ndomain.insert("expires", expires);
+                                            }
+
+                                            // httpOnly
+                                            BOOL httpOnly = FALSE;
+                                            if (SUCCEEDED(cookie->get_IsHttpOnly(&httpOnly))) {
+                                                ndomain.insert("httpOnly", httpOnly);
+                                            }
+
+                                            // Secure
+                                            BOOL secure = FALSE;
+                                            if (SUCCEEDED(cookie->get_IsSecure(&secure))) {
+                                                ndomain.insert("secure", secure);
+                                            }
+
+                                            // Session
+                                            BOOL session = FALSE;
+                                            if (SUCCEEDED(cookie->get_IsSession(&session))) {
+                                                ndomain.insert("session", session);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            return S_OK;
+                        })
+                        .Get());
+        Q_ASSERT_SUCCEEDED(hr);
+    }
+
+    return cookies;
+}
+
+bool QWebView2WebViewPrivate::setCookie(const QString &domain, const QString &name,
+                                        const QString &value)
+{
+    if (m_webview && m_cookieManager) {
+        ComPtr<ICoreWebView2Cookie> cookie;
+        HRESULT hr =
+                m_cookieManager->CreateCookie((wchar_t *)name.utf16(), (wchar_t *)value.utf16(),
+                                              (wchar_t *)domain.utf16(), L"", &cookie);
+        if (SUCCEEDED(hr)) {
+            hr = m_cookieManager->AddOrUpdateCookie(cookie.Get());
+            return SUCCEEDED(hr);
+        }
+    }
+
+    return false;
+}
+
+void QWebView2WebViewPrivate::deleteCookie(const QString &domain, const QString &name)
+{
+    if (m_webview && m_cookieManager) {
+        QString uri = domain;
+        if (!uri.startsWith("http"))
+            uri = "https://" + uri;
+        HRESULT hr = m_cookieManager->GetCookies(
+                (wchar_t *)uri.utf16(),
+                Microsoft::WRL::Callback<ICoreWebView2GetCookiesCompletedHandler>(
+                        [name, domain](HRESULT result,
+                                       ICoreWebView2CookieList *cookieList) -> HRESULT {
+                            UINT count = 0;
+                            cookieList->get_Count(&count);
+                            for (UINT i = 0; i < count; ++i) {
+                                ComPtr<ICoreWebView2Cookie> cookie;
+                                if (SUCCEEDED(cookieList->GetValueAtIndex(i, &cookie))) {
+                                    wchar_t *domainPtr;
+                                    wchar_t *namePtr;
+                                    if (SUCCEEDED(cookie->get_Domain(&domainPtr))
+                                        && SUCCEEDED(cookie->get_Name(&namePtr))) {
+                                        QString sdomain = QString::fromStdWString(domainPtr);
+                                        QString sname = QString::fromStdWString(namePtr);
+                                        CoTaskMemFree(namePtr);
+                                        CoTaskMemFree(domainPtr);
+                                        if (domain == sdomain && name == sname) {
+                                            return S_OK;
+                                        }
+                                    }
+                                }
+                            }
+                            return S_OK;
+                        })
+                        .Get());
+        Q_ASSERT_SUCCEEDED(hr);
+        hr = m_cookieManager->DeleteCookiesWithDomainAndPath((wchar_t *)name.utf16(),
+                                                             (wchar_t *)domain.utf16(), L"");
+        Q_ASSERT_SUCCEEDED(hr);
+    }
+}
+
+void QWebView2WebViewPrivate::deleteAllCookies()
+{
+    if (m_webview && m_cookieManager) {
+        HRESULT hr = m_cookieManager->DeleteAllCookies();
+        Q_ASSERT_SUCCEEDED(hr);
+    }
+}
+
 HRESULT
 QWebView2WebViewPrivate::onNavigationStarting(ICoreWebView2 *webview,
                                               ICoreWebView2NavigationStartingEventArgs *args)
@@ -232,27 +430,30 @@ HRESULT
 QWebView2WebViewPrivate::onWebResourceRequested(ICoreWebView2 *webview,
                                                 ICoreWebView2WebResourceRequestedEventArgs *args)
 {
+    /*
     ComPtr<ICoreWebView2WebResourceRequest> request;
     ComPtr<ICoreWebView2WebResourceResponse> response;
     HRESULT hr = args->get_Request(&request);
     Q_ASSERT_SUCCEEDED(hr);
     wchar_t *uri;
     hr = request->get_Uri(&uri);
-    // std::wstring_view source(uri);
+    std::wstring_view source(uri);
 
-    //    if (!m_settings->allowFileAccess()) {
-    //        ComPtr<ICoreWebView2Environment> environment;
-    //        ComPtr<ICoreWebView2_2> webview2;
-    //        m_webview->QueryInterface(IID_PPV_ARGS(&webview2));
-    //        webview2->get_Environment(&environment);
+    if (!m_settings->allowFileAccess()) {
+        ComPtr<ICoreWebView2Environment> environment;
+        ComPtr<ICoreWebView2_2> webview2;
+        m_webview->QueryInterface(IID_PPV_ARGS(&webview2));
+        webview2->get_Environment(&environment);
 
-    //        hr = environment->CreateWebResourceResponse(nullptr, 403, L"Access Denied", L"", &response);
-    //        Q_ASSERT_SUCCEEDED(hr)
-    //        hr = args->put_Response(response.Get());
-    //        Q_ASSERT_SUCCEEDED(hr)
-    //    }
+        hr = environment->CreateWebResourceResponse(nullptr, 403, L"Access Denied", L"", &response);
+        Q_ASSERT_SUCCEEDED(hr)
+        hr = args->put_Response(response.Get());
+        Q_ASSERT_SUCCEEDED(hr)
+    }
 
     CoTaskMemFree(uri);
+    */
+
     return S_OK;
 }
 

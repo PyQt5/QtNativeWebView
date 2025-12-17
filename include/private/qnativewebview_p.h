@@ -28,6 +28,12 @@ public:
 
     virtual QWindow *nativeWindow() = 0;
     virtual QString errorString() const = 0;
+    virtual QString userAgent() const = 0;
+    virtual bool setUserAgent(const QString &userAgent) = 0;
+    virtual QJsonObject allCookies() const = 0;
+    virtual bool setCookie(const QString &domain, const QString &name, const QString &value) = 0;
+    virtual void deleteCookie(const QString &domain, const QString &name) = 0;
+    virtual void deleteAllCookies() = 0;
 
 Q_SIGNALS:
     void loadStarted();

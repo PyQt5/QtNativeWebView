@@ -58,6 +58,36 @@ QString QNativeWebView::errorString() const
     return d_ptr->errorString();
 }
 
+QString QNativeWebView::userAgent() const
+{
+    return d_ptr->userAgent();
+}
+
+bool QNativeWebView::setUserAgent(const QString &userAgent)
+{
+    return d_ptr->setUserAgent(userAgent);
+}
+
+QJsonObject QNativeWebView::allCookies() const
+{
+    return d_ptr->allCookies();
+}
+
+bool QNativeWebView::setCookie(const QString &domain, const QString &name, const QString &value)
+{
+    return d_ptr->setCookie(domain, name, value);
+}
+
+void QNativeWebView::deleteCookie(const QString &domain, const QString &name)
+{
+    d_ptr->deleteCookie(domain, name);
+}
+
+void QNativeWebView::deleteAllCookies()
+{
+    d_ptr->deleteAllCookies();
+}
+
 void QNativeWebView::evaluateJavaScript(const QString &scriptSource,
                                         const std::function<void(const QVariant &)> &callback)
 {

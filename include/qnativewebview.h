@@ -5,6 +5,7 @@
 
 #include <QWidget>
 #include <QUrl>
+#include <QJsonObject>
 #include <functional>
 
 class QNativeWebViewPrivate;
@@ -17,6 +18,12 @@ public:
     explicit QNativeWebView(QWidget *parent = nullptr, Qt::WindowFlags f = Qt::WindowFlags());
     ~QNativeWebView();
     QString errorString() const;
+    QString userAgent() const;
+    bool setUserAgent(const QString &userAgent);
+    QJsonObject allCookies() const;
+    bool setCookie(const QString &domain, const QString &name, const QString &value);
+    void deleteCookie(const QString &domain, const QString &name);
+    void deleteAllCookies();
     void evaluateJavaScript(const QString &scriptSource,
                             const std::function<void(const QVariant &)> &callback = {});
 
