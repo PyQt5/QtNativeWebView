@@ -7,7 +7,6 @@ Q_FORWARD_DECLARE_OBJC_CLASS(WKWebView);
 Q_FORWARD_DECLARE_OBJC_CLASS(WKNavigation);
 Q_FORWARD_DECLARE_OBJC_CLASS(WKWebViewConfiguration);
 
-
 class QDarwinWebViewPrivate : public QNativeWebViewPrivate
 {
     Q_OBJECT
@@ -26,6 +25,15 @@ public:
     int progressValue() const;
 
     QWindow *nativeWindow() override;
+    QString errorString() const override;
+    QString userAgent() const override;
+    bool setUserAgent(const QString &userAgent) override;
+    void allCookies(const std::function<void(const QJsonObject &)> &callback) override;
+    bool setCookie(const QString &domain, const QString &name, const QString &value) override;
+    void deleteCookie(const QString &domain, const QString &name) override;
+    void deleteAllCookies() override;
+    void evaluateJavaScript(const QString &scriptSource,
+                            const std::function<void(const QVariant &)> &callback = {}) override;
 
 private Q_SLOTS:
     void updateWindowGeometry();

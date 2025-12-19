@@ -7,6 +7,7 @@
 #include <QUrl>
 #include <QMessageBox>
 #include <QInputDialog>
+#include <QJsonObject>
 #include <QFile>
 
 // clang-format off
@@ -220,10 +221,7 @@ typedef NSView UIView;
 @end
 
 QDarwinWebViewPrivate::QDarwinWebViewPrivate(QObject *parent)
-    : QNativeWebViewPrivate(parent),
-      m_webview(nil),
-      m_navigation(nil),
-      m_window(nullptr)
+    : QNativeWebViewPrivate(parent), m_webview(nil), m_navigation(nil), m_window(nullptr)
 {
     initialize();
 }
@@ -258,8 +256,7 @@ void QDarwinWebViewPrivate::load(const QUrl &url)
             // We need to pass local files via loadFileURL and the read access should cover
             // the directory that the file is in, to facilitate loading referenced images etc
             [m_webview loadFileURL:url.toNSURL()
-                    allowingReadAccessToURL:QUrl(url.toString(QUrl::RemoveFilename))
-                                                    .toNSURL()];
+                    allowingReadAccessToURL:QUrl(url.toString(QUrl::RemoveFilename)).toNSURL()];
         } else {
             [m_webview loadRequest:[NSURLRequest requestWithURL:url.toNSURL()]];
         }
@@ -323,6 +320,185 @@ int QDarwinWebViewPrivate::progressValue() const
 QWindow *QDarwinWebViewPrivate::nativeWindow()
 {
     return m_window;
+}
+
+QString QDarwinWebViewPrivate::errorString() const
+{
+    return "";
+}
+
+QString QDarwinWebViewPrivate::userAgent() const
+{
+    if (m_webview) {
+        return QString::fromNSString(m_webview.customUserAgent);
+    }
+
+    return "";
+}
+
+bool QDarwinWebViewPrivate::setUserAgent(const QString &userAgent)
+{
+    if (m_webview && !userAgent.isEmpty()) {
+        m_webview.customUserAgent = userAgent.toNSString();
+        return true;
+    }
+
+    return false;
+}
+
+void QDarwinWebViewPrivate::allCookies(const std::function<void(const QJsonObject &)> &callback)
+{
+    if (m_webview) {
+        WKHTTPCookieStore *cookieStore = m_webview.configuration.websiteDataStore.httpCookieStore;
+        if (cookieStore == nullptr) {
+            if (callback) {
+                QMetaObject::invokeMethod(this, [&callback] { callback(QJsonObject()); });
+            }
+            return;
+        }
+
+        [cookieStore getAllCookies:^(NSArray *cookies) {
+            QJsonObject result;
+            for (NSHTTPCookie *cookie in cookies) {
+                // domain
+                QString strDomain = QString::fromNSString(cookie.domain);
+                if (!result.contains(strDomain)) {
+                    result.insert(strDomain, QJsonObject());
+                }
+                // name
+                QString strName = QString::fromNSString(cookie.name);
+                if (strName.isEmpty()) {
+                    continue;
+                }
+
+                // expires
+                double expires = 0;
+                NSDate *expiresDate = cookie.expiresDate;
+                if (expiresDate != nil) {
+                    expires = [expiresDate timeIntervalSince1970];
+                }
+
+                QJsonValueRef refDomain = result[strDomain];
+                QJsonObject jsonDomain = refDomain.toObject();
+                jsonDomain[strName] = QJsonObject{
+                    { "value", QString::fromNSString(cookie.value) },
+                    { "path", QString::fromNSString(cookie.path) },
+                    { "expires", expires },
+                    { "httpOnly", (bool)cookie.HTTPOnly },
+                    { "secure", (bool)cookie.secure },
+                    { "session", (bool)cookie.sessionOnly },
+                };
+                refDomain = jsonDomain;
+            }
+            if (callback) {
+                QMetaObject::invokeMethod(this, [&callback, &result] { callback(result); });
+            }
+        }];
+        return;
+    } else {
+        if (callback) {
+            callback(QJsonObject());
+        }
+    }
+}
+
+bool QDarwinWebViewPrivate::setCookie(const QString &domain, const QString &name,
+                                      const QString &value)
+{
+    if (m_webview) {
+        NSString *cookieDomain = domain.toNSString();
+        NSString *cookieName = name.toNSString();
+        NSString *cookieValue = value.toNSString();
+
+        WKHTTPCookieStore *cookieStore = m_webview.configuration.websiteDataStore.httpCookieStore;
+
+        if (cookieStore == nullptr) {
+            return false;
+        }
+
+        NSMutableDictionary *cookieProperties = [NSMutableDictionary dictionary];
+        [cookieProperties setObject:cookieName forKey:NSHTTPCookieName];
+        [cookieProperties setObject:cookieValue forKey:NSHTTPCookieValue];
+        [cookieProperties setObject:cookieDomain forKey:NSHTTPCookieDomain];
+        [cookieProperties setObject:cookieDomain forKey:NSHTTPCookieOriginURL];
+        [cookieProperties setObject:@"/" forKey:NSHTTPCookiePath];
+        [cookieProperties setObject:@"0" forKey:NSHTTPCookieVersion];
+
+        NSHTTPCookie *cookie = [NSHTTPCookie cookieWithProperties:cookieProperties];
+
+        if (cookie == nullptr) {
+            return false;
+        }
+
+        [cookieStore setCookie:cookie
+                completionHandler:^{
+                        /*
+                    qDebug() << "Cookie set:" << QString::fromNSString(cookie.domain)
+                             << QString::fromNSString(cookie.name)
+                             << QString::fromNSString(cookie.value);
+                    */
+                }];
+
+        return true;
+    }
+
+    return false;
+}
+
+void QDarwinWebViewPrivate::deleteCookie(const QString &domain, const QString &name)
+{
+    if (m_webview) {
+        NSString *cookieDomain = domain.toNSString();
+        NSString *cookieName = name.toNSString();
+
+        WKHTTPCookieStore *cookieStore = m_webview.configuration.websiteDataStore.httpCookieStore;
+
+        if (cookieStore == nullptr) {
+            return;
+        }
+
+        [cookieStore getAllCookies:^(NSArray *cookies) {
+            NSHTTPCookie *cookie;
+            for (cookie in cookies) {
+                if ([cookie.domain isEqualToString:cookieDomain] &&
+                    [cookie.name isEqualToString:cookieName]) {
+                    [cookieStore deleteCookie:cookie
+                            completionHandler:^{
+                                    /*
+                                qDebug()
+                                        << "Cookie deleted:" << QString::fromNSString(cookie.domain)
+                                        << QString::fromNSString(cookie.name);
+                                */
+                            }];
+                }
+            }
+        }];
+    }
+}
+
+void QDarwinWebViewPrivate::deleteAllCookies()
+{
+    if (m_webview) {
+        WKHTTPCookieStore *cookieStore = m_webview.configuration.websiteDataStore.httpCookieStore;
+
+        [cookieStore getAllCookies:^(NSArray *cookies) {
+            NSHTTPCookie *cookie;
+            for (cookie in cookies) {
+                [cookieStore deleteCookie:cookie
+                        completionHandler:^{
+                                /*
+                            qDebug() << "Cookie removed:" << QString::fromNSString(cookie.domain)
+                                     << QString::fromNSString(cookie.name);
+                            */
+                        }];
+            }
+        }];
+    }
+}
+
+void QDarwinWebViewPrivate::evaluateJavaScript(
+        const QString &scriptSource, const std::function<void(const QVariant &)> &callback)
+{
 }
 
 void QDarwinWebViewPrivate::updateWindowGeometry() { }

@@ -25,7 +25,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
         qInfo() << "loadFinished" << ok;
         ui->logEdit->appendPlainText(QString("loadFinished: %1").arg(ok));
         qInfo() << "user agent:" << ui->widgetBrowser->userAgent();
-        qInfo() << "cookies:" << ui->widgetBrowser->allCookies();
+        ui->widgetBrowser->allCookies(
+                [](const QJsonObject &cookies) { qInfo() << "cookies:" << cookies; });
     });
     connect(ui->widgetBrowser, &QNativeWebView::loadProgress, this, [&](int progress) {
         qInfo() << "loadProgress" << progress;

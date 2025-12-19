@@ -101,52 +101,6 @@ void QWebView2WebViewPrivate::setHtml(const QString &html, const QUrl &baseUrl)
     }
 }
 
-void QWebView2WebViewPrivate::evaluateJavaScript(
-        const QString &scriptSource, const std::function<void(const QVariant &)> &callback)
-{
-    if (!m_webview) {
-        if (callback) {
-            callback("");
-        }
-        return;
-    }
-
-    const HRESULT hr = m_webview->ExecuteScript(
-            (wchar_t *)scriptSource.utf16(),
-            Microsoft::WRL::Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
-                    [this, callback](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT {
-                        QString resultStr = QString::fromWCharArray(resultObjectAsJson);
-                        qInfo() << "resultStr:" << resultStr;
-
-                        QJsonParseError parseError;
-                        QJsonDocument jsonDoc =
-                                QJsonDocument::fromJson(resultStr.toUtf8(), &parseError);
-
-                        QVariant resultVariant;
-                        if (parseError.error == QJsonParseError::NoError) {
-                            resultVariant = jsonDoc.toVariant();
-                        } else {
-                            QString wrapped = QString("{\"value\":%1}").arg(resultStr);
-                            jsonDoc = QJsonDocument::fromJson(wrapped.toUtf8(), &parseError);
-                            if (parseError.error == QJsonParseError::NoError) {
-                                resultVariant = jsonDoc.object().value("value").toVariant();
-                            } else {
-                                QJsonValue val = QJsonValue::fromVariant(resultStr);
-                                resultVariant = val.toVariant();
-                            }
-                        }
-                        if (errorCode != S_OK) {
-                            QMetaObject::invokeMethod(
-                                    this, [&] { callback(qt_error_string(errorCode)); });
-                        } else {
-                            QMetaObject::invokeMethod(this, [&] { callback(resultVariant); });
-                        }
-                        return errorCode;
-                    })
-                    .Get());
-    Q_ASSERT_SUCCEEDED(hr);
-}
-
 void QWebView2WebViewPrivate::stop()
 {
     if (m_webview) {
@@ -234,10 +188,8 @@ bool QWebView2WebViewPrivate::setUserAgent(const QString &userAgent)
     return false;
 }
 
-QJsonObject QWebView2WebViewPrivate::allCookies() const
+void QWebView2WebViewPrivate::allCookies(const std::function<void(const QJsonObject &)> &callback)
 {
-    QJsonObject cookies;
-
     if (m_webview && m_cookieManager) {
         HRESULT hr = m_cookieManager->GetCookies(
                 L"",
@@ -245,70 +197,77 @@ QJsonObject QWebView2WebViewPrivate::allCookies() const
                         [&cookies](HRESULT result, ICoreWebView2CookieList *cookieList) -> HRESULT {
                             UINT count = 0;
                             cookieList->get_Count(&count);
+                            QJsonObject cookies;
                             for (UINT i = 0; i < count; ++i) {
                                 ComPtr<ICoreWebView2Cookie> cookie;
                                 if (SUCCEEDED(cookieList->GetValueAtIndex(i, &cookie))) {
                                     wchar_t *domain = nullptr;
                                     if (SUCCEEDED(cookie->get_Domain(&domain))) {
                                         // domain
-                                        QString sdomain = QString::fromStdWString(domain);
+                                        QString strDomain = QString::fromStdWString(domain);
                                         CoTaskMemFree(domain);
-                                        if (!cookies.contains(sdomain)) {
-                                            cookies.insert(sdomain, QJsonObject());
+                                        if (!cookies.contains(strDomain)) {
+                                            cookies.insert(strDomain, QJsonObject());
                                         }
-                                        QJsonObject jdomain = cookies.value(sdomain).toObject();
-
                                         // name
                                         wchar_t *name = nullptr;
-                                        if (SUCCEEDED(cookie->get_Name(&name))) {
-                                            QString sname = QString::fromStdWString(name);
-                                            CoTaskMemFree(name);
-                                            jdomain.insert("name", sname);
-                                            if (!jdomain.contains(sname)) {
-                                                jdomain.insert(sname, QJsonObject());
-                                            }
-                                            QJsonObject ndomain = jdomain.value(sname).toObject();
-
-                                            // value
-                                            wchar_t *value = nullptr;
-                                            if (SUCCEEDED(cookie->get_Value(&value))) {
-                                                QString svalue = QString::fromStdWString(value);
-                                                CoTaskMemFree(value);
-                                                ndomain.insert("value", svalue);
-                                            }
-
-                                            // path
-                                            wchar_t *path = nullptr;
-                                            if (SUCCEEDED(cookie->get_Path(&path))) {
-                                                QString spath = QString::fromStdWString(path);
-                                                CoTaskMemFree(path);
-                                                ndomain.insert("path", spath);
-                                            }
-
-                                            // expires
-                                            double expires = 0;
-                                            if (SUCCEEDED(cookie->get_Expires(&expires))) {
-                                                ndomain.insert("expires", expires);
-                                            }
-
-                                            // httpOnly
-                                            BOOL httpOnly = FALSE;
-                                            if (SUCCEEDED(cookie->get_IsHttpOnly(&httpOnly))) {
-                                                ndomain.insert("httpOnly", httpOnly);
-                                            }
-
-                                            // Secure
-                                            BOOL secure = FALSE;
-                                            if (SUCCEEDED(cookie->get_IsSecure(&secure))) {
-                                                ndomain.insert("secure", secure);
-                                            }
-
-                                            // Session
-                                            BOOL session = FALSE;
-                                            if (SUCCEEDED(cookie->get_IsSession(&session))) {
-                                                ndomain.insert("session", session);
-                                            }
+                                        if (!SUCCEEDED(cookie->get_Name(&name))) {
+                                            continue;
                                         }
+                                        QString strName = QString::fromStdWString(name);
+                                        CoTaskMemFree(name);
+
+                                        // value
+                                        QString strValue = "";
+                                        wchar_t *value = nullptr;
+                                        if (SUCCEEDED(cookie->get_Value(&value))) {
+                                            strValue = QString::fromStdWString(value);
+                                            CoTaskMemFree(value);
+                                        }
+
+                                        // path
+                                        QString strPath = "";
+                                        wchar_t *path = nullptr;
+                                        if (SUCCEEDED(cookie->get_Path(&path))) {
+                                            strPath = QString::fromStdWString(path);
+                                            CoTaskMemFree(path);
+                                        }
+
+                                        // expires
+                                        double expires = 0;
+                                        if (!SUCCEEDED(cookie->get_Expires(&expires))) {
+                                            expires = 0;
+                                        }
+
+                                        // httpOnly
+                                        BOOL httpOnly = FALSE;
+                                        if (SUCCEEDED(cookie->get_IsHttpOnly(&httpOnly))) {
+                                            httpOnly = FALSE;
+                                        }
+
+                                        // Secure
+                                        BOOL secure = FALSE;
+                                        if (SUCCEEDED(cookie->get_IsSecure(&secure))) {
+                                            secure = FALSE;
+                                        }
+
+                                        // Session
+                                        BOOL session = FALSE;
+                                        if (SUCCEEDED(cookie->get_IsSession(&session))) {
+                                            session = FALSE;
+                                        }
+
+                                        QJsonValueRef refDomain = result[strDomain];
+                                        QJsonObject jsonDomain = refDomain.toObject();
+                                        jsonDomain[strName] = QJsonObject{
+                                            { "value", strValue },
+                                            { "path", strPath },
+                                            { "expires", expires },
+                                            { "httpOnly", (bool)httpOnly },
+                                            { "secure", (bool)secure },
+                                            { "session", (bool)session },
+                                        };
+                                        refDomain = jsonDomain;
                                     }
                                 }
                             }
@@ -316,9 +275,11 @@ QJsonObject QWebView2WebViewPrivate::allCookies() const
                         })
                         .Get());
         Q_ASSERT_SUCCEEDED(hr);
+    } else {
+        if (callback) {
+            callback(QJsonObject());
+        }
     }
-
-    return cookies;
 }
 
 bool QWebView2WebViewPrivate::setCookie(const QString &domain, const QString &name,
@@ -358,11 +319,11 @@ void QWebView2WebViewPrivate::deleteCookie(const QString &domain, const QString 
                                     wchar_t *namePtr;
                                     if (SUCCEEDED(cookie->get_Domain(&domainPtr))
                                         && SUCCEEDED(cookie->get_Name(&namePtr))) {
-                                        QString sdomain = QString::fromStdWString(domainPtr);
-                                        QString sname = QString::fromStdWString(namePtr);
+                                        QString strDomain = QString::fromStdWString(domainPtr);
+                                        QString strName = QString::fromStdWString(namePtr);
                                         CoTaskMemFree(namePtr);
                                         CoTaskMemFree(domainPtr);
-                                        if (domain == sdomain && name == sname) {
+                                        if (domain == strDomain && name == strName) {
                                             return S_OK;
                                         }
                                     }
@@ -384,6 +345,52 @@ void QWebView2WebViewPrivate::deleteAllCookies()
         HRESULT hr = m_cookieManager->DeleteAllCookies();
         Q_ASSERT_SUCCEEDED(hr);
     }
+}
+
+void QWebView2WebViewPrivate::evaluateJavaScript(
+        const QString &scriptSource, const std::function<void(const QVariant &)> &callback)
+{
+    if (!m_webview) {
+        if (callback) {
+            callback("");
+        }
+        return;
+    }
+
+    const HRESULT hr = m_webview->ExecuteScript(
+            (wchar_t *)scriptSource.utf16(),
+            Microsoft::WRL::Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
+                    [this, callback](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT {
+                        QString resultStr = QString::fromWCharArray(resultObjectAsJson);
+                        qInfo() << "resultStr:" << resultStr;
+
+                        QJsonParseError parseError;
+                        QJsonDocument jsonDoc =
+                                QJsonDocument::fromJson(resultStr.toUtf8(), &parseError);
+
+                        QVariant resultVariant;
+                        if (parseError.error == QJsonParseError::NoError) {
+                            resultVariant = jsonDoc.toVariant();
+                        } else {
+                            QString wrapped = QString("{\"value\":%1}").arg(resultStr);
+                            jsonDoc = QJsonDocument::fromJson(wrapped.toUtf8(), &parseError);
+                            if (parseError.error == QJsonParseError::NoError) {
+                                resultVariant = jsonDoc.object().value("value").toVariant();
+                            } else {
+                                QJsonValue val = QJsonValue::fromVariant(resultStr);
+                                resultVariant = val.toVariant();
+                            }
+                        }
+                        if (errorCode != S_OK) {
+                            QMetaObject::invokeMethod(
+                                    this, [&] { callback(qt_error_string(errorCode)); });
+                        } else {
+                            QMetaObject::invokeMethod(this, [&] { callback(resultVariant); });
+                        }
+                        return errorCode;
+                    })
+                    .Get());
+    Q_ASSERT_SUCCEEDED(hr);
 }
 
 HRESULT

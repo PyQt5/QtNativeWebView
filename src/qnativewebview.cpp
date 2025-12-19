@@ -68,9 +68,9 @@ bool QNativeWebView::setUserAgent(const QString &userAgent)
     return d_ptr->setUserAgent(userAgent);
 }
 
-QJsonObject QNativeWebView::allCookies() const
+void QNativeWebView::allCookies(const std::function<void(const QJsonObject &)> &callback)
 {
-    return d_ptr->allCookies();
+    d_ptr->allCookies(callback);
 }
 
 bool QNativeWebView::setCookie(const QString &domain, const QString &name, const QString &value)

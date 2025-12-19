@@ -20,7 +20,7 @@ public:
     QString errorString() const;
     QString userAgent() const;
     bool setUserAgent(const QString &userAgent);
-    QJsonObject allCookies() const;
+    void allCookies(const std::function<void(const QJsonObject &)> &callback);
     bool setCookie(const QString &domain, const QString &name, const QString &value);
     void deleteCookie(const QString &domain, const QString &name);
     void deleteAllCookies();

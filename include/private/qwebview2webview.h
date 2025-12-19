@@ -38,8 +38,6 @@ public:
 
     void load(const QUrl &url) override;
     void setHtml(const QString &html, const QUrl &baseUrl = QUrl()) override;
-    void evaluateJavaScript(const QString &scriptSource,
-                            const std::function<void(const QVariant &)> &callback = {}) override;
     void stop() override;
     void back() override;
     void forward() override;
@@ -49,10 +47,12 @@ public:
     QString errorString() const override;
     QString userAgent() const override;
     bool setUserAgent(const QString &userAgent) override;
-    QJsonObject allCookies() const override;
+    void allCookies(const std::function<void(const QJsonObject &)> &callback) override;
     bool setCookie(const QString &domain, const QString &name, const QString &value) override;
     void deleteCookie(const QString &domain, const QString &name) override;
     void deleteAllCookies() override;
+    void evaluateJavaScript(const QString &scriptSource,
+                            const std::function<void(const QVariant &)> &callback = {}) override;
 
 private Q_SLOTS:
     HRESULT onNavigationStarting(ICoreWebView2 *webview,
