@@ -191,10 +191,12 @@ bool QWebView2WebViewPrivate::setUserAgent(const QString &userAgent)
 void QWebView2WebViewPrivate::allCookies(const std::function<void(const QJsonObject &)> &callback)
 {
     if (m_webview && m_cookieManager) {
+        std::function<void(const QJsonObject &)> cb = callback;
         HRESULT hr = m_cookieManager->GetCookies(
                 L"",
                 Microsoft::WRL::Callback<ICoreWebView2GetCookiesCompletedHandler>(
-                        [&cookies](HRESULT result, ICoreWebView2CookieList *cookieList) -> HRESULT {
+                        [cookies, cb](HRESULT result,
+                                            ICoreWebView2CookieList *cookieList) -> HRESULT {
                             UINT count = 0;
                             cookieList->get_Count(&count);
                             QJsonObject cookies;
@@ -270,6 +272,10 @@ void QWebView2WebViewPrivate::allCookies(const std::function<void(const QJsonObj
                                         refDomain = jsonDomain;
                                     }
                                 }
+                            }
+                            if (cb) {
+                                QMetaObject::invokeMethod(
+                                        this, [cb, cookies] { cb(cookies); });
                             }
                             return S_OK;
                         })
@@ -357,12 +363,12 @@ void QWebView2WebViewPrivate::evaluateJavaScript(
         return;
     }
 
+    std::function<void(const QVariant &)> cb = callback;
     const HRESULT hr = m_webview->ExecuteScript(
             (wchar_t *)scriptSource.utf16(),
             Microsoft::WRL::Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
-                    [this, callback](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT {
+                    [this, cb](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT {
                         QString resultStr = QString::fromWCharArray(resultObjectAsJson);
-                        qInfo() << "resultStr:" << resultStr;
 
                         QJsonParseError parseError;
                         QJsonDocument jsonDoc =
@@ -382,10 +388,12 @@ void QWebView2WebViewPrivate::evaluateJavaScript(
                             }
                         }
                         if (errorCode != S_OK) {
-                            QMetaObject::invokeMethod(
-                                    this, [&] { callback(qt_error_string(errorCode)); });
+                            QMetaObject::invokeMethod(this, [cb, errorCode] {
+                                cb(qt_error_string(errorCode));
+                            });
                         } else {
-                            QMetaObject::invokeMethod(this, [&] { callback(resultVariant); });
+                            QMetaObject::invokeMethod(
+                                    this, [cb, resultVariant] { cb(resultVariant); });
                         }
                         return errorCode;
                     })

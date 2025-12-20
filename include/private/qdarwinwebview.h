@@ -40,6 +40,7 @@ private Q_SLOTS:
     void initialize();
 
 public:
+    QString m_error;
     WKNavigation *m_navigation;
 
 private:

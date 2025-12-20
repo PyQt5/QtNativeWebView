@@ -5,6 +5,7 @@
 #include <QTimer>
 #include <QScreen>
 #include <QUrl>
+#include <QJsonParseError>
 #include <QMessageBox>
 #include <QInputDialog>
 #include <QJsonObject>
@@ -59,19 +60,18 @@ typedef NSView UIView;
 {
     [self pageDone];
     NSString *errorString = [error localizedDescription];
-    NSURL *failingURL = error.userInfo[@"NSErrorFailingURLKey"];
+    qDarwinWebViewPrivate->m_error = QString::fromNSString(errorString);
     Q_EMIT qDarwinWebViewPrivate->loadFinished(false);
-    const QUrl url =
-            [failingURL isKindOfClass:[NSURL class]] ? QUrl::fromNSURL(failingURL) : QUrl();
-    qDebug() << "Error loading" << url << ":" << QString::fromNSString(errorString);
-    // Q_EMIT qDarwinWebViewPrivate->loadingChanged(QWebViewLoadRequestPrivate(
-    //         url, QWebView::LoadFailedStatus, QString::fromNSString(errorString)));
+    // NSURL *failingURL = error.userInfo[@"NSErrorFailingURLKey"];
+    // const QUrl url =
+    //         [failingURL isKindOfClass:[NSURL class]] ? QUrl::fromNSURL(failingURL) : QUrl();
+    // qDebug() << "Error loading" << url << ":" << QString::fromNSString(errorString);
 }
 
 - (void)webView:(WKWebView *)webView didStartProvisionalNavigation:(WKNavigation *)navigation
 {
     Q_UNUSED(webView);
-    qDebug() << "Did start provisional navigation";
+    qDarwinWebViewPrivate->m_error = "";
     // WKNavigationDelegate gives us per-frame notifications while the QWebView API
     // should provide per-page notifications. Therefore we keep track of the last frame
     // to be started, if that finishes or fails then we indicate that it has loaded.
@@ -89,7 +89,6 @@ typedef NSView UIView;
 - (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation
 {
     Q_UNUSED(webView);
-    qDebug() << "Did finish navigation";
     if (qDarwinWebViewPrivate->m_navigation != navigation)
         return;
 
@@ -104,8 +103,7 @@ typedef NSView UIView;
                            withError:(NSError *)error
 {
     Q_UNUSED(webView);
-    qDebug() << "Did fail provisional navigation:"
-             << QString::fromNSString([error localizedDescription]);
+    qDarwinWebViewPrivate->m_error = QString::fromNSString([error localizedDescription]);
     if (qDarwinWebViewPrivate->m_navigation != navigation)
         return;
     [self handleError:error];
@@ -116,7 +114,7 @@ typedef NSView UIView;
                 withError:(NSError *)error
 {
     Q_UNUSED(webView);
-    qDebug() << "Did fail navigation:" << QString::fromNSString([error localizedDescription]);
+    qDarwinWebViewPrivate->m_error = QString::fromNSString([error localizedDescription]);
     if (qDarwinWebViewPrivate->m_navigation != navigation)
         return;
     [self handleError:error];
@@ -324,7 +322,7 @@ QWindow *QDarwinWebViewPrivate::nativeWindow()
 
 QString QDarwinWebViewPrivate::errorString() const
 {
-    return "";
+    return m_error;
 }
 
 QString QDarwinWebViewPrivate::userAgent() const
@@ -352,11 +350,12 @@ void QDarwinWebViewPrivate::allCookies(const std::function<void(const QJsonObjec
         WKHTTPCookieStore *cookieStore = m_webview.configuration.websiteDataStore.httpCookieStore;
         if (cookieStore == nullptr) {
             if (callback) {
-                QMetaObject::invokeMethod(this, [&callback] { callback(QJsonObject()); });
+                QMetaObject::invokeMethod(this, [callback] { callback(QJsonObject()); });
             }
             return;
         }
 
+        std::function<void(const QJsonObject &)> cb = callback;
         [cookieStore getAllCookies:^(NSArray *cookies) {
             QJsonObject result;
             for (NSHTTPCookie *cookie in cookies) {
@@ -390,8 +389,8 @@ void QDarwinWebViewPrivate::allCookies(const std::function<void(const QJsonObjec
                 };
                 refDomain = jsonDomain;
             }
-            if (callback) {
-                QMetaObject::invokeMethod(this, [&callback, &result] { callback(result); });
+            if (cb) {
+                QMetaObject::invokeMethod(this, [cb, result] { cb(result); });
             }
         }];
         return;
@@ -496,9 +495,84 @@ void QDarwinWebViewPrivate::deleteAllCookies()
     }
 }
 
+QVariant fromNSNumber(const NSNumber *number)
+{
+    if (!number)
+        return QVariant();
+    if (strcmp([number objCType], @encode(BOOL)) == 0) {
+        return QVariant::fromValue(!![number boolValue]);
+    } else if (strcmp([number objCType], @encode(signed char)) == 0) {
+        return QVariant::fromValue([number charValue]);
+    } else if (strcmp([number objCType], @encode(unsigned char)) == 0) {
+        return QVariant::fromValue([number unsignedCharValue]);
+    } else if (strcmp([number objCType], @encode(signed short)) == 0) {
+        return QVariant::fromValue([number shortValue]);
+    } else if (strcmp([number objCType], @encode(unsigned short)) == 0) {
+        return QVariant::fromValue([number unsignedShortValue]);
+    } else if (strcmp([number objCType], @encode(signed int)) == 0) {
+        return QVariant::fromValue([number intValue]);
+    } else if (strcmp([number objCType], @encode(unsigned int)) == 0) {
+        return QVariant::fromValue([number unsignedIntValue]);
+    } else if (strcmp([number objCType], @encode(signed long long)) == 0) {
+        return QVariant::fromValue([number longLongValue]);
+    } else if (strcmp([number objCType], @encode(unsigned long long)) == 0) {
+        return QVariant::fromValue([number unsignedLongLongValue]);
+    } else if (strcmp([number objCType], @encode(float)) == 0) {
+        return QVariant::fromValue([number floatValue]);
+    } else if (strcmp([number objCType], @encode(double)) == 0) {
+        return QVariant::fromValue([number doubleValue]);
+    }
+    return QVariant();
+}
+
+QVariant fromJSValue(id result)
+{
+    if ([result isKindOfClass:[NSString class]])
+        return QString::fromNSString(static_cast<NSString *>(result));
+    if ([result isKindOfClass:[NSNumber class]])
+        return fromNSNumber(static_cast<NSNumber *>(result));
+    if ([result isKindOfClass:[NSDate class]])
+        return QDateTime::fromNSDate(static_cast<NSDate *>(result));
+
+    if ([result isKindOfClass:[NSArray class]] || [result isKindOfClass:[NSDictionary class]]) {
+        @try {
+            // Round-trip via JSON, so we don't have to implement conversion
+            // from NSArray and NSDictionary manually.
+
+            // FIXME: NSJSONSerialization requires that any nested object
+            // is NSString, NSNumber, NSArray, NSDictionary, or NSNull, so
+            // nested NSDates are not supported -- meaning we support plain
+            // NSDate (above), but not in an array or dict. To handle this
+            // use-case we'd need a manual conversion.
+            auto jsonData = QByteArray::fromNSData([NSJSONSerialization dataWithJSONObject:result
+                                                                                   options:0
+                                                                                     error:nil]);
+
+            QJsonParseError parseError;
+            auto jsonDocument = QJsonDocument::fromJson(jsonData, &parseError);
+            if (parseError.error == QJsonParseError::NoError)
+                return jsonDocument.toVariant();
+        } @catch (NSException *) {
+            return QVariant();
+        }
+    }
+
+    return QVariant();
+}
+
 void QDarwinWebViewPrivate::evaluateJavaScript(
         const QString &scriptSource, const std::function<void(const QVariant &)> &callback)
 {
+    if (m_webview) {
+        std::function<void(const QVariant &)> cb = callback;
+        [m_webview
+                evaluateJavaScript:scriptSource.toNSString()
+                 completionHandler:^(id result, NSError *) {
+                     if (cb) {
+                         QMetaObject::invokeMethod(this, [result, cb] { cb(fromJSValue(result)); });
+                     }
+                 }];
+    }
 }
 
 void QDarwinWebViewPrivate::updateWindowGeometry() { }
