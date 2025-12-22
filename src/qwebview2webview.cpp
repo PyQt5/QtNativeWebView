@@ -195,8 +195,7 @@ void QWebView2WebViewPrivate::allCookies(const std::function<void(const QJsonObj
         HRESULT hr = m_cookieManager->GetCookies(
                 L"",
                 Microsoft::WRL::Callback<ICoreWebView2GetCookiesCompletedHandler>(
-                        [cookies, cb](HRESULT result,
-                                            ICoreWebView2CookieList *cookieList) -> HRESULT {
+                        [this, cb](HRESULT result, ICoreWebView2CookieList *cookieList) -> HRESULT {
                             UINT count = 0;
                             cookieList->get_Count(&count);
                             QJsonObject cookies;
@@ -259,7 +258,7 @@ void QWebView2WebViewPrivate::allCookies(const std::function<void(const QJsonObj
                                             session = FALSE;
                                         }
 
-                                        QJsonValueRef refDomain = result[strDomain];
+                                        QJsonValueRef refDomain = cookies[strDomain];
                                         QJsonObject jsonDomain = refDomain.toObject();
                                         jsonDomain[strName] = QJsonObject{
                                             { "value", strValue },
@@ -274,8 +273,7 @@ void QWebView2WebViewPrivate::allCookies(const std::function<void(const QJsonObj
                                 }
                             }
                             if (cb) {
-                                QMetaObject::invokeMethod(
-                                        this, [cb, cookies] { cb(cookies); });
+                                QMetaObject::invokeMethod(this, [cb, cookies] { cb(cookies); });
                             }
                             return S_OK;
                         })
@@ -388,12 +386,11 @@ void QWebView2WebViewPrivate::evaluateJavaScript(
                             }
                         }
                         if (errorCode != S_OK) {
-                            QMetaObject::invokeMethod(this, [cb, errorCode] {
-                                cb(qt_error_string(errorCode));
-                            });
-                        } else {
                             QMetaObject::invokeMethod(
-                                    this, [cb, resultVariant] { cb(resultVariant); });
+                                    this, [cb, errorCode] { cb(qt_error_string(errorCode)); });
+                        } else {
+                            QMetaObject::invokeMethod(this,
+                                                      [cb, resultVariant] { cb(resultVariant); });
                         }
                         return errorCode;
                     })

@@ -4,6 +4,7 @@
 #include <QDebug>
 #include <QAction>
 #include <QIcon>
+#include <QJsonDocument>
 #include <QStyle>
 #include <QPixmap>
 
@@ -25,8 +26,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
         qInfo() << "loadFinished" << ok;
         ui->logEdit->appendPlainText(QString("loadFinished: %1").arg(ok));
         qInfo() << "user agent:" << ui->widgetBrowser->userAgent();
-        ui->widgetBrowser->allCookies(
-                [](const QJsonObject &cookies) { qInfo() << "cookies:" << cookies; });
+        ui->widgetBrowser->allCookies([&](const QJsonObject &cookies) {
+            qInfo() << "cookies:" << cookies;
+            ui->logEdit->appendPlainText("cookies:" + QJsonDocument(cookies).toJson());
+        });
     });
     connect(ui->widgetBrowser, &QNativeWebView::loadProgress, this, [&](int progress) {
         qInfo() << "loadProgress" << progress;
