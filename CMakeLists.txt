@@ -25,7 +25,7 @@ if(WIN32)
        src/qwebview2webview.cpp)
 endif()
 
-if(LINUX)
+if(UNIX AND NOT APPLE)
   find_package(PkgConfig REQUIRED)
   pkg_check_modules(GTK3 REQUIRED IMPORTED_TARGET gtk+-3.0)
   pkg_search_module(WEBKIT2GTK REQUIRED webkit2gtk-4.1 webkit2gtk-4.0)
@@ -44,9 +44,8 @@ endif()
 
 add_library(${PROJECT_NAME} SHARED ${PROJECT_SOURCES})
 
-target_link_libraries(
-  ${PROJECT_NAME} PRIVATE Qt${QT_VERSION_MAJOR}::WidgetsPrivate
-                          Qt${QT_VERSION_MAJOR}::Widgets ${WebViewLibs})
+target_link_libraries(${PROJECT_NAME} PRIVATE Qt${QT_VERSION_MAJOR}::Widgets
+                                              ${WebViewLibs})
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE QNATIVEWEBVIEW_LIBRARY)
 
