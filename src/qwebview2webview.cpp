@@ -356,7 +356,7 @@ void QWebView2WebViewPrivate::evaluateJavaScript(
 {
     if (!m_webview) {
         if (callback) {
-            callback("");
+            callback(QVariant());
         }
         return;
     }

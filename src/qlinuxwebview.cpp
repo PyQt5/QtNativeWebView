@@ -1,6 +1,7 @@
 // clang-format off
 #include <gio/gio.h>
 #include <webkit2/webkit2.h>
+#include <jsc/jsc.h>
 // clang-format on
 
 #include "private/qlinuxwebview.h"
@@ -18,6 +19,12 @@
 #include <glib.h>
 #include <gtk/gtkx.h>
 // clang-format on
+
+struct CallbackData
+{
+    QObject *obj;
+    std::function<void(const QVariant &)> callback;
+};
 
 QLinuxWebViewPrivate::QLinuxWebViewPrivate(QObject *parent)
     : QNativeWebViewPrivate(parent), m_webview(nullptr), m_widget(nullptr), m_window(nullptr)
@@ -142,6 +149,61 @@ void QLinuxWebViewPrivate::deleteAllCookies() { }
 void QLinuxWebViewPrivate::evaluateJavaScript(const QString &scriptSource,
                                               const std::function<void(const QVariant &)> &callback)
 {
+    if (!m_webview || scriptSource.isEmpty()) {
+        if (callback) {
+            callback(QVariant());
+        }
+        return;
+    }
+
+    CallbackData *data = new CallbackData;
+    data->obj = this;
+    data->callback = callback;
+
+    webkit_web_view_run_javascript(
+            static_cast<WebKitWebView *>(m_webview), scriptSource.toUtf8().constData(), nullptr,
+            [](GObject *object, GAsyncResult *result, gpointer userData) {
+                CallbackData *udata = static_cast<CallbackData *>(userData);
+
+                GError *error = nullptr;
+                WebKitJavascriptResult *jsResult = webkit_web_view_run_javascript_finish(
+                        WEBKIT_WEB_VIEW(object), result, &error);
+
+                QVariant resultVariant;
+
+                if (error) {
+                    const QString msg =
+                            QString("code: %1, msg: %2").arg(error->code).arg(error->message);
+                    qWarning() << "Error executing JavaScript:" << msg;
+                    g_error_free(error);
+                } else {
+                    if (jsResult) {
+                        JSCValue *value = webkit_javascript_result_get_js_value(jsResult);
+
+                        if (jsc_value_is_boolean(value)) {
+                            resultVariant = jsc_value_to_boolean(value);
+                        } else if (jsc_value_is_number(value)) {
+                            resultVariant = jsc_value_to_double(value);
+                        } else if (jsc_value_is_string(value)) {
+                            resultVariant = QString(jsc_value_to_string(value));
+                        } else if (jsc_value_is_null(value) || jsc_value_is_undefined(value)) {
+                            resultVariant = QVariant();
+                        } else {
+                            resultVariant = QString(jsc_value_to_string(value));
+                        }
+
+                        webkit_javascript_result_unref(jsResult);
+                    }
+                }
+
+                QMetaObject::invokeMethod(udata->obj, [udata, resultVariant]() {
+                    if (udata->callback) {
+                        udata->callback(resultVariant);
+                    }
+                    delete udata;
+                });
+            },
+            data);
 }
 
 void QLinuxWebViewPrivate::updateWindowGeometry()
@@ -211,28 +273,28 @@ void QLinuxWebViewPrivate::initialize()
             this);
 
     // load status
-    g_signal_connect_swapped(
-            m_webview, "load-changed",
-            G_CALLBACK(+[](QLinuxWebViewPrivate *instance, WebKitLoadEvent event) {
-                qDebug() << "load-changed";
-                if (instance && instance->m_webview) {
-                    WebKitWebView *webview = static_cast<WebKitWebView *>(instance->m_webview);
-                    WebKitLoadEvent ev = static_cast<WebKitLoadEvent>(event);
-                    switch (event) {
-                    case WEBKIT_LOAD_STARTED:
-                        instance->m_error = "";
-                        emit instance->loadStarted();
-                        break;
-                    case WEBKIT_LOAD_FINISHED:
-                        instance->m_error = "";
-                        emit instance->loadFinished(true);
-                        break;
-                    default:
-                        break;
-                    }
-                }
-            }),
-            this);
+    g_signal_connect_swapped(m_webview, "load-changed",
+                             G_CALLBACK(+[](QLinuxWebViewPrivate *instance, WebKitLoadEvent event) {
+                                 qDebug() << "load-changed";
+                                 if (instance && instance->m_webview) {
+                                     WebKitWebView *webview =
+                                             static_cast<WebKitWebView *>(instance->m_webview);
+                                     WebKitLoadEvent ev = static_cast<WebKitLoadEvent>(event);
+                                     switch (event) {
+                                     case WEBKIT_LOAD_STARTED:
+                                         instance->m_error = "";
+                                         emit instance->loadStarted();
+                                         break;
+                                     case WEBKIT_LOAD_FINISHED:
+                                         instance->m_error = "";
+                                         emit instance->loadFinished(true);
+                                         break;
+                                     default:
+                                         break;
+                                     }
+                                 }
+                             }),
+                             this);
 
     // load failed
     g_signal_connect_swapped(m_webview, "load-failed",
